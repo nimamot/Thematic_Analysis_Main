@@ -1,11 +1,10 @@
 """CLI entry point for the GT pipeline."""
 import argparse
 import json
-import os
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from agents.core.batch_open_coding import run_batched_open_coding
 from agents.core.cooccurrence import write_cooccurrence
 from agents.core.paths import (
     CLUSTERED_CODES_PATH,
@@ -240,24 +239,9 @@ def main() -> None:
         )
         raise SystemExit(1)
     reviews = text_df[text_col].astype(str).tolist()
-    all_open_codes = []
-
-    def _code_one(idx_review):
-        idx, review = idx_review
-        state = _base_state(rq)
-        state["raw_text"] = review
-        final_state = app.invoke(state, config={"recursion_limit": 25})
-        return idx, final_state.get("open_codes", "")
-
-    workers = int(os.environ.get("GT_OPEN_CODING_WORKERS", "8"))
-    results: dict = {}
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = {ex.submit(_code_one, (idx, rev)): idx
-                   for idx, rev in enumerate(reviews, start=1)}
-        for fut in as_completed(futures):
-            idx, codes = fut.result()
-            results[idx] = codes
-            print(f"      [{len(results)}/{len(reviews)}] open coding done: review {idx}", flush=True)
+    # Batched open coding + validation (GT_OPEN_CODING_BATCH_SIZE, GT_OPEN_CODING_BATCH_WORKERS).
+    indexed = list(enumerate(reviews, start=1))
+    results = run_batched_open_coding(indexed, rq)
     all_open_codes = [(idx, results[idx]) for idx in sorted(results)]
 
     with open(OPEN_CODES_MARKDOWN_PATH, "w", encoding="utf-8") as f:

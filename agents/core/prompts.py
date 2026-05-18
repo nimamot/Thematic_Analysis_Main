@@ -1,6 +1,7 @@
 """LLM prompt strings for the GT pipeline. Tools import these to keep prompt iteration separate from logic."""
 
-from typing import Optional
+import json
+from typing import Any, Dict, List, Optional
 
 
 def open_coding_prompt(
@@ -95,6 +96,85 @@ Issues:
 ...
 
 If PASS, you may add a single line of explanation after PASS. If FAIL, list specific issues so the coder can revise."""
+
+
+def batch_open_coding_prompt(
+    research_question: str,
+    items: List[Dict[str, Any]],
+) -> str:
+    """Build a batched open-coding prompt. Each item: id, text, optional validator_feedback."""
+    requests_json = json.dumps(items, indent=2, ensure_ascii=False)
+    return f"""
+You are doing Open Coding for thematic analysis on MULTIPLE user reviews in one task.
+
+Research Question: {research_question}
+Focus on aspects of each review that are relevant to the research question above.
+
+Treat each request **independently** — do not mix evidence or codes across ids.
+
+Rules (apply to **every** review):
+- Produce **0 to 3** codes per review, depending on whether that review offers material that **answers the research question**.
+- If a review is **off-topic**, **too thin**, or contains **nothing** that bears on the question, use **Applicability: NONE** for that id (no `- Code:` lines in its output).
+- When a review **does** contain relevant material, produce 1–3 codes (up to 2 for short reviews under ~50 words unless clearly richer).
+- Each code must be a short noun phrase (2–6 words), distinct, evaluatively specific (aspect + quality/direction), grounded in that review's text.
+- If an item includes `validator_feedback`, revise that review's codes using the feedback; otherwise code from scratch.
+
+Per-review `output` format (markdown string, same as single-review coding):
+
+When nothing applies:
+- Applicability: NONE
+  Reason: <one or two sentences>
+  Evidence: "<short quote>"
+
+When coding:
+- Code: <code>
+  Evidence: "<short quote>"
+  Note: <one short phrase>
+
+Requests (JSON array):
+{requests_json}
+
+Output **only** valid JSON (no markdown fences, no extra text):
+{{
+  "responses": [
+    {{"id": "<same id as request>", "output": "<markdown for that review>"}}
+  ]
+}}
+
+Include one entry in `responses` for **every** request id, in any order.
+"""
+
+
+def batch_validate_open_codes_prompt(
+    research_question: str,
+    items: List[Dict[str, Any]],
+) -> str:
+    """Build a batched validation prompt. Each item: id, text, generated_codes."""
+    requests_json = json.dumps(items, indent=2, ensure_ascii=False)
+    return f"""
+You are reviewing qualitative codes for MULTIPLE reviews in one task.
+
+Research Question: {research_question}
+
+For **each** request, evaluate the coder output for that review only.
+
+Criteria (same as single-review validation):
+- If coder used **Applicability: NONE** (no `- Code:` lines): PASS only if the review truly has no question-relevant content; FAIL if it should have been coded.
+- If `- Code:` lines exist: codes must be grounded, non-duplicate, concise, evaluatively specific, and relevant to the research question.
+- FAIL if output mixes NONE with `- Code:` lines, or is empty.
+
+Requests (JSON array; each has id, text, generated_codes):
+{requests_json}
+
+Output **only** valid JSON:
+{{
+  "responses": [
+    {{"id": "<same id>", "verdict": "PASS" or "FAIL", "feedback": "<issues for FAIL; brief note or empty for PASS>"}}
+  ]
+}}
+
+Include one entry per request id. Use verdict exactly `"PASS"` or `"FAIL"`.
+"""
 
 
 def high_level_code_generation_prompt(bulleted: str, research_question: str) -> str:
