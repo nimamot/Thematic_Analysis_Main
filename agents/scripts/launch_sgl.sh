@@ -23,11 +23,12 @@ ensure_pipeline_python_deps
 
 
 # Override examples:
-#   export GT_DATA_CSV="$REPO_ROOT/data/reddit_comment_text_1000.csv"
+# export GT_DATA_CSV="$REPO_ROOT/data/reddit_comment_text_1000.csv"
 # GT_DATA_CSV="${GT_DATA_CSV:-$REPO_ROOT/data/school_burnout_text_review.csv}"
 # GT_DATA_CSV="$REPO_ROOT/data/gameplayreview_text_english_3k.csv"
-GT_DATA_CSV="$REPO_ROOT/data/train.csv"
+# GT_DATA_CSV="$REPO_ROOT/data/train.csv"
 # GT_DATA_CSV="$REPO_ROOT/data/school_burnout_text_review.csv"
+export GT_DATA_CSV="$REPO_ROOT/data/review_text_english_50k.csv"
 
 
 MODEL_PATH="$AGENTS_ROOT/weights/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit"
@@ -35,10 +36,14 @@ SERVER_LOG="$AGENTS_ROOT/server.log"
 PORT=8000
 # Research question — keep it broad so open coding stays inductive (avoid naming expected themes).
 # Override: RESEARCH_QUESTION="..." sbatch run.sh
-RESEARCH_QUESTION="What thematic patterns emerge across these reviews?"
-# RESEARCH_QUESTION="What do players dislike about games and software in these reviews?"
+# RESEARCH_QUESTION="What thematic patterns emerge across these reviews?"
+RESEARCH_QUESTION="What do players dislike about games and software in these reviews?"
 
 export RESEARCH_QUESTION
+
+# Must match SGLang --context-length; batch open coding uses this to cap completion tokens.
+GT_CONTEXT_LENGTH="${GT_CONTEXT_LENGTH:-8000}"
+export GT_CONTEXT_LENGTH
 
 # Stop SGLang reliably so GPU VRAM is freed before axial (embedding) and other steps.
 stop_sglang_server() {
@@ -165,10 +170,10 @@ python -m sglang.launch_server \
   --host 0.0.0.0 \
   --served-model-name llm \
   --mem-fraction-static 0.90 \
-  --context-length 8000 \
+  --context-length "$GT_CONTEXT_LENGTH" \
   >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
-echo "Server PID: $SERVER_PID"
+echo "Server PID: $SERVER_PID (context-length=$GT_CONTEXT_LENGTH)"
 
 MAX_RETRIES=2400
 # --- 3. The 'Wait-For-Ready' Loop ---
@@ -225,7 +230,7 @@ python -m sglang.launch_server \
   --host 0.0.0.0 \
   --served-model-name llm \
   --mem-fraction-static 0.90 \
-  --context-length 8000 \
+  --context-length "$GT_CONTEXT_LENGTH" \
   >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 if ! wait_for_openai_ready "$PORT" "$SERVER_LOG" "$SERVER_PID" "SGLang (Qwen, phase 2)"; then

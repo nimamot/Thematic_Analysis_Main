@@ -80,7 +80,14 @@ def load_skill_text(skill_key: str) -> str:
     return _strip_yaml_frontmatter(raw)
 
 
-def llm_invoke_with_skill(llm, skill_key: str, human_prompt: str, **labels: Any) -> str:
+def llm_invoke_with_skill(
+    llm,
+    skill_key: str,
+    human_prompt: str,
+    *,
+    max_tokens: int | None = None,
+    **labels: Any,
+) -> str:
     """
     Invoke ChatOpenAI with skills as a SystemMessage + HumanMessage (langchain_core).
 
@@ -98,8 +105,12 @@ def llm_invoke_with_skill(llm, skill_key: str, human_prompt: str, **labels: Any)
         else [SystemMessage(content=sys_text), HumanMessage(content=human_prompt)]
     )
 
+    invoke_kwargs: dict[str, Any] = {}
+    if max_tokens is not None:
+        invoke_kwargs["max_tokens"] = max_tokens
+
     t0 = time.monotonic()
-    ai = llm.invoke(arg)
+    ai = llm.invoke(arg, **invoke_kwargs)
     latency_ms = (time.monotonic() - t0) * 1000.0
     record_llm_usage(skill_key, ai, latency_ms=latency_ms, labels=labels or None)
     return (ai.content or "").strip()

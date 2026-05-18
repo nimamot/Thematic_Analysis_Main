@@ -21,7 +21,7 @@ from agents.core.paths import (
     ensure_output_dirs,
 )
 from agents.core.report import generate_research_report
-from agents.core.utils import extract_codes, log_step
+from agents.core.utils import extract_codes, log_step, parse_open_codes_markdown
 import pandas as pd
 from agents.core.app import app
 
@@ -51,6 +51,11 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--open-coding-only", action="store_true", help="Run only open coding; save gt_codes_only.json and exit (so SGLang can be killed before axial).")
     p.add_argument("--axial-only", action="store_true", help="Load gt_codes_only.json and run only the axial step in the graph.")
+    p.add_argument(
+        "--rebuild-codes-json",
+        action="store_true",
+        help="Re-parse outputs/data/gt_open_codes_all_reviews.md and rewrite gt_codes_only.json (no LLM).",
+    )
     p.add_argument("--high-level-only", action="store_true", help="Load gt_clustered_codes.json and run high-level code generation (LLM must be up).")
     p.add_argument("--refine-only", action="store_true", help="Run high-level (if needed) then refine_cluster_assignments. Requires codebook.json and gt_clustered_codes.json. LLM must be up.")
     p.add_argument("--hierarchy-only", action="store_true", help="Run hierarchy construction (intra-cluster sub-theme grouping). LLM must be up.")
@@ -217,11 +222,48 @@ def main() -> None:
         )
         raise SystemExit(0)
 
+    if args.rebuild_codes_json:
+        if not OPEN_CODES_MARKDOWN_PATH.is_file():
+            print(
+                f"Error: {display_path(OPEN_CODES_MARKDOWN_PATH)} not found. Run open coding first.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        md_text = OPEN_CODES_MARKDOWN_PATH.read_text(encoding="utf-8")
+        sections = parse_open_codes_markdown(md_text)
+        if not sections:
+            print(
+                f"Error: no '## Review N' sections in {display_path(OPEN_CODES_MARKDOWN_PATH)}.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        codes_per_review = [(rid, extract_codes(body)) for rid, body in sections]
+        all_codes = [code for _, codes in codes_per_review for code in codes]
+        with open(GT_CODES_ONLY_PATH, "w", encoding="utf-8") as f:
+            json.dump(
+                {"all_codes": all_codes, "codes_per_review": codes_per_review},
+                f,
+                indent=2,
+            )
+        log_step(
+            "CODES_REBUILT",
+            f"Total codes: {len(all_codes)} (from {len(codes_per_review)} reviews). See {display_path(GT_CODES_ONLY_PATH)}",
+        )
+        raise SystemExit(0)
+
     if args.axial_only:
         with open(GT_CODES_ONLY_PATH, encoding="utf-8") as f:
             data = json.load(f)
+        all_codes = data.get("all_codes") or []
+        if not all_codes:
+            print(
+                f"Error: {display_path(GT_CODES_ONLY_PATH)} has no codes. "
+                f"Run with --rebuild-codes-json if {display_path(OPEN_CODES_MARKDOWN_PATH)} exists.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
         state = _base_state(rq)
-        state["all_codes_for_axial"] = data["all_codes"]
+        state["all_codes_for_axial"] = all_codes
         final_axial = app.invoke(state, config={"recursion_limit": 25})
         axial_mapping = final_axial.get("axial_mapping", "")
         log_step("AXIAL_COMPLETE", axial_mapping[:500] + "..." if len(axial_mapping) > 500 else axial_mapping)

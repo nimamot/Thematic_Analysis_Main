@@ -41,15 +41,32 @@ def clean_and_parse_json(text: str):
     return json.loads(text_no_think[start_idx : end_idx + 1])
 
 
+_CODE_LINE_RE = re.compile(
+    r"^[-*]?\s*Code:\s*(.+)$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
 def extract_codes(open_coding_text: str) -> list[str]:
     """
     Extract code labels only from open coding output (no Evidence/Note).
-    Expects lines like: "- Code: <code>"
+    Accepts both "- Code: <code>" (single-review / prompt) and "Code: <code>" (batch path).
     """
     if not open_coding_text or not open_coding_text.strip():
         return []
-    codes = re.findall(r"^-\s*Code:\s*(.+)$", open_coding_text, re.MULTILINE | re.IGNORECASE)
+    codes = _CODE_LINE_RE.findall(open_coding_text)
     return [c.strip() for c in codes if c.strip()]
+
+
+def parse_open_codes_markdown(text: str) -> list[tuple[int, str]]:
+    """Parse ## Review N sections from gt_open_codes_all_reviews.md."""
+    parts = re.split(r"^## Review (\d+)\s*$", text, flags=re.MULTILINE)
+    out: list[tuple[int, str]] = []
+    i = 1
+    while i + 1 < len(parts):
+        out.append((int(parts[i]), parts[i + 1].strip()))
+        i += 2
+    return out
 
 
 def _extract_usage(ai_message: Any) -> Dict[str, Any]:

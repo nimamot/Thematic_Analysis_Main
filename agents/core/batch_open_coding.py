@@ -14,8 +14,55 @@ from .tools import llm, open_coding, validate_open_codes
 from .utils import clean_and_parse_json, log_step, remove_think_tags
 
 
+def _context_length() -> int:
+    raw = os.environ.get("GT_CONTEXT_LENGTH", "8000").strip()
+    try:
+        return max(2048, int(raw))
+    except ValueError:
+        return 8000
+
+
+def _batch_max_tokens() -> int:
+    """Completion budget for batched calls; must fit inside GT_CONTEXT_LENGTH with long inputs."""
+    ctx = _context_length()
+    raw = os.environ.get("GT_BATCH_MAX_TOKENS", "2048").strip()
+    try:
+        cap = int(raw)
+    except ValueError:
+        cap = 2048
+    # Reserve headroom for prompt + batched review text (typical batch input ~2–6k on 8k ctx).
+    return max(512, min(cap, ctx // 2))
+
+
+def _is_context_length_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return "context length" in msg or "maximum context" in msg
+
+
+def _invoke_with_context_split(
+    batch: List[Tuple[int, str]],
+    invoke_fn: Callable[[List[Tuple[int, str]]], Dict],
+) -> Dict:
+    try:
+        return invoke_fn(batch)
+    except Exception as e:
+        if not _is_context_length_error(e) or len(batch) <= 1:
+            raise
+        mid = max(1, len(batch) // 2)
+        ids = [r for r, _ in batch]
+        log_step(
+            "BATCH_CONTEXT_SPLIT",
+            f"ids={ids} -> {ids[:mid]} + {ids[mid:]} ({e})",
+        )
+        left = _invoke_with_context_split(batch[:mid], invoke_fn)
+        right = _invoke_with_context_split(batch[mid:], invoke_fn)
+        left.update(right)
+        return left
+
+
+# The batch size is the number of reviews to process in parallel. Should be tuned according to the approximate length of the reviews (given the current context window of 8000).
 def _batch_size() -> int:
-    raw = os.environ.get("GT_OPEN_CODING_BATCH_SIZE", "8").strip()
+    raw = os.environ.get("GT_OPEN_CODING_BATCH_SIZE", "4").strip()
     try:
         n = int(raw)
         return max(1, min(32, n))
@@ -24,12 +71,12 @@ def _batch_size() -> int:
 
 
 def _batch_workers() -> int:
-    raw = os.environ.get("GT_OPEN_CODING_BATCH_WORKERS", "2").strip()
+    raw = os.environ.get("GT_OPEN_CODING_BATCH_WORKERS", "4").strip()
     try:
         n = int(raw)
         return max(1, min(16, n))
     except ValueError:
-        return 2
+        return 4
 
 
 def _chunk(
@@ -130,21 +177,22 @@ def _invoke_batch_code(
     research_question: str,
     feedback_map: Dict[int, str],
 ) -> Dict[int, str]:
-    ids = [rid for rid, _ in batch]
-    items = _build_code_items(batch, feedback_map)
-    prompt = batch_open_coding_prompt(research_question, items)
-    raw = llm_invoke_with_skill(
-        llm,
-        "batch_open_coding",
-        prompt,
-        batch_ids=",".join(_id_str(i) for i in ids),
-    )
-    result = _parse_code_batch(raw, ids)
-    log_step(
-        "BATCH_OPEN_CODING",
-        f"ids={ids}",
-    )
-    return result
+    def _do(one_batch: List[Tuple[int, str]]) -> Dict[int, str]:
+        ids = [rid for rid, _ in one_batch]
+        items = _build_code_items(one_batch, feedback_map)
+        prompt = batch_open_coding_prompt(research_question, items)
+        raw = llm_invoke_with_skill(
+            llm,
+            "batch_open_coding",
+            prompt,
+            max_tokens=_batch_max_tokens(),
+            batch_ids=",".join(_id_str(i) for i in ids),
+        )
+        result = _parse_code_batch(raw, ids)
+        log_step("BATCH_OPEN_CODING", f"ids={ids}")
+        return result
+
+    return _invoke_with_context_split(batch, _do)
 
 
 def _invoke_batch_validate(
@@ -152,21 +200,25 @@ def _invoke_batch_validate(
     research_question: str,
     codes_by_id: Dict[int, str],
 ) -> Dict[int, Tuple[str, str]]:
-    ids = [rid for rid, _ in batch]
-    items = _build_validate_items(batch, codes_by_id)
-    prompt = batch_validate_open_codes_prompt(research_question, items)
-    raw = llm_invoke_with_skill(
-        llm,
-        "batch_validate_open_codes",
-        prompt,
-        batch_ids=",".join(_id_str(i) for i in ids),
-    )
-    result = _parse_validate_batch(raw, ids)
-    log_step(
-        "BATCH_VALIDATE_OPEN_CODES",
-        f"ids={ids} verdicts={{{', '.join(f'{i}:{v}' for i, (v, _) in result.items())}}}",
-    )
-    return result
+    def _do(one_batch: List[Tuple[int, str]]) -> Dict[int, Tuple[str, str]]:
+        ids = [rid for rid, _ in one_batch]
+        items = _build_validate_items(one_batch, codes_by_id)
+        prompt = batch_validate_open_codes_prompt(research_question, items)
+        raw = llm_invoke_with_skill(
+            llm,
+            "batch_validate_open_codes",
+            prompt,
+            max_tokens=_batch_max_tokens(),
+            batch_ids=",".join(_id_str(i) for i in ids),
+        )
+        result = _parse_validate_batch(raw, ids)
+        log_step(
+            "BATCH_VALIDATE_OPEN_CODES",
+            f"ids={ids} verdicts={{{', '.join(f'{i}:{v}' for i, (v, _) in result.items())}}}",
+        )
+        return result
+
+    return _invoke_with_context_split(batch, _do)
 
 
 def _fallback_code_batch(

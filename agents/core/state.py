@@ -121,11 +121,12 @@ def agent_node(state: GTState):
         }
 
     # --- Axial phase: first axial step (embed + cluster) ---
-    if state.get("all_codes_for_axial") and not state.get("axial_mapping"):
+    axial_codes = state.get("all_codes_for_axial")
+    if axial_codes is not None and not state.get("axial_mapping"):
         return {
             "tool_call": {
                 "tool": "axial_coding",
-                "args": {"open_codes": json.dumps(state["all_codes_for_axial"])},
+                "args": {"open_codes": json.dumps(axial_codes)},
             },
             "step": step,
         }
@@ -198,7 +199,7 @@ def router(state: GTState):
     if state.get("tool_call"):
         return "tool"
     # Open-coding phase: waiting for validation or done
-    if state.get("open_codes") and not state.get("all_codes_for_axial"):
+    if state.get("open_codes") and state.get("all_codes_for_axial") is None:
         validation = state.get("open_codes_validation")
         retries = state.get("_open_coding_retries", 0)
         if validation is None:
