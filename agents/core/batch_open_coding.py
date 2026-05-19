@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from .prompts import batch_open_coding_prompt, batch_validate_open_codes_prompt
 from .skills import llm_invoke_with_skill
@@ -79,9 +79,7 @@ def _batch_workers() -> int:
         return 4
 
 
-def _chunk(
-    items: List[Tuple[int, str]], batch_size: int
-) -> List[List[Tuple[int, str]]]:
+def _chunk(items: List[Tuple[int, str]], batch_size: int) -> List[List[Tuple[int, str]]]:
     return [items[i : i + batch_size] for i in range(0, len(items), batch_size)]
 
 

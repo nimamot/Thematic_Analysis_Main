@@ -40,9 +40,7 @@ def test_batch_open_coding_prompt_includes_ids_and_json():
 
 
 def test_batch_validate_open_codes_prompt_includes_verdict_json():
-    items = [
-        {"id": "3", "text": "t", "generated_codes": "- Code: x\n  Evidence: \"q\"\n  Note: n"}
-    ]
+    items = [{"id": "3", "text": "t", "generated_codes": '- Code: x\n  Evidence: "q"\n  Note: n'}]
     p = batch_validate_open_codes_prompt("RQ", items)
     assert "RQ" in p
     assert '"verdict"' in p
