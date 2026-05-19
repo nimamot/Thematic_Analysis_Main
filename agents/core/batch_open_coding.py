@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 from .prompts import batch_open_coding_prompt, batch_validate_open_codes_prompt
 from .skills import llm_invoke_with_skill

@@ -3,8 +3,6 @@
 import json
 from unittest.mock import patch
 
-import pytest
-
 from agents.core import batch_open_coding as boc
 from agents.core.state import OPEN_CODING_MAX_RETRIES
 
