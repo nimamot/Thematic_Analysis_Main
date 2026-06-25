@@ -286,10 +286,14 @@ stop_sglang_server "$SERVER_PID"
 SERVER_PID=""
 
 if [ "${GT_CODEBOOK_REVIEW:-0}" = "1" ]; then
-    require_supabase_credentials
     echo "Codebook review gate enabled (GT_CODEBOOK_REVIEW=1)..."
     export PIPELINE_SLUG="${PIPELINE_SLUG:-default}"
     export RESEARCH_QUESTION
+    if codebook_review_uses_supabase; then
+        require_supabase_credentials
+    else
+        echo "Codebook review backend: local (viewer-data/)."
+    fi
     if [ "${GT_CODEBOOK_REVIEW_MODE:-manual}" != "interrupt" ]; then
         PYTHONPATH="$REPO_ROOT" python "$AGENTS_ROOT/scripts/upload_codebook_for_review.py" || exit 1
     fi
@@ -441,5 +445,16 @@ if [ "${UPLOAD_TO_SUPABASE:-0}" = "1" ]; then
     fi
 else
     echo "Supabase upload skipped (UPLOAD_TO_SUPABASE is not 1). With sbatch run.sh, export UPLOAD_TO_SUPABASE=1 in .env.supabase or rely on run.sh defaulting it to 1 when SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set."
+fi
+
+if [ "${GT_VIEWER_EXPORT:-1}" = "1" ]; then
+    echo "Exporting pipeline artifacts to viewer-data/ (GT_VIEWER_EXPORT=1)..."
+    export PIPELINE_SLUG="${PIPELINE_SLUG:-default}"
+    if ! PYTHONPATH="$REPO_ROOT" python "$AGENTS_ROOT/scripts/export_viewer_data.py" --mode project; then
+        echo "Error: viewer-data export failed."
+        exit 1
+    fi
+else
+    echo "Viewer export skipped (GT_VIEWER_EXPORT=0)."
 fi
 exit 0

@@ -26,6 +26,24 @@ from .supabase_http import (
 from .utils import log_step
 
 
+def review_backend() -> str:
+    """Return ``local`` or ``supabase`` for the codebook review gate."""
+    explicit = os.environ.get("GT_CODEBOOK_REVIEW_BACKEND", "").strip().lower()
+    if explicit in ("local", "supabase"):
+        return explicit
+    url = os.environ.get("SUPABASE_URL", "").strip()
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if url and key:
+        return "supabase"
+    return "local"
+
+
+def viewer_export_enabled() -> bool:
+    from .viewer_export import viewer_export_enabled as _enabled
+
+    return _enabled()
+
+
 def human_review_enabled() -> bool:
     return os.environ.get("GT_CODEBOOK_REVIEW", "0").strip() in ("1", "true", "yes")
 
@@ -71,6 +89,22 @@ def build_v1_payload(
         except (json.JSONDecodeError, OSError):
             confidence = {}
     return build_enriched_from_artifacts(codebook, cluster_to_codes, confidence, version=1)
+
+
+def stage_v1_for_review(
+    slug: str,
+    research_question: str,
+    *,
+    meta: Optional[dict] = None,
+) -> str:
+    """Export or upload v1 codebook for human review; returns review id (or slug for local)."""
+    if review_backend() == "local":
+        from .viewer_export import export_codebook_review
+
+        export_codebook_review(slug, research_question)
+        log_step("CODEBOOK_REVIEW_STAGED_LOCAL", f"slug={slug!r}")
+        return slug
+    return upload_v1_for_review(slug, research_question, meta=meta)
 
 
 def upload_v1_for_review(
@@ -169,8 +203,17 @@ def wait_for_approval(
     timeout_sec: Optional[int] = None,
     interval_sec: Optional[int] = None,
 ) -> dict:
-    url, key = _supabase_credentials()
     slug = slug or os.environ.get("PIPELINE_SLUG", "default").strip() or "default"
+    if review_backend() == "local":
+        from .viewer_export import wait_for_local_approval
+
+        wait_for_local_approval(
+            slug,
+            timeout_sec=timeout_sec,
+            interval_sec=interval_sec,
+        )
+        return {"id": review_id or slug, "slug": slug, "status": "approved"}
+    url, key = _supabase_credentials()
     if timeout_sec is None:
         timeout_sec = int(os.environ.get("GT_CODEBOOK_REVIEW_TIMEOUT_SEC", "86400"))
     if interval_sec is None:

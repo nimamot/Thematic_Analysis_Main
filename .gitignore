@@ -36,5 +36,11 @@ docs/
 
 agents/report_server.log
 
+# Researcher-local viewer exports (manifest scaffold is tracked)
+viewer-data/projects/*
+!viewer-data/projects/.gitkeep
+viewer-data/codebook-reviews/*
+!viewer-data/codebook-reviews/.gitkeep
+
 agents/docs/
 notebooks/

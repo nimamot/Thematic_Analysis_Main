@@ -36,7 +36,7 @@ print_pipeline_env_flags() {
     if [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
         supabase_ok=yes
     fi
-    echo "${where} flags: GT_CODEBOOK_REVIEW=${GT_CODEBOOK_REVIEW:-0} GT_QUALITATIVE_ENRICHMENT=${GT_QUALITATIVE_ENRICHMENT:-1} UPLOAD_TO_SUPABASE=${UPLOAD_TO_SUPABASE:-0} PIPELINE_SLUG=${PIPELINE_SLUG:-default} SUPABASE_CREDENTIALS=${supabase_ok}"
+    echo "${where} flags: GT_CODEBOOK_REVIEW=${GT_CODEBOOK_REVIEW:-0} GT_CODEBOOK_REVIEW_BACKEND=${GT_CODEBOOK_REVIEW_BACKEND:-auto} GT_VIEWER_EXPORT=${GT_VIEWER_EXPORT:-1} GT_QUALITATIVE_ENRICHMENT=${GT_QUALITATIVE_ENRICHMENT:-1} UPLOAD_TO_SUPABASE=${UPLOAD_TO_SUPABASE:-0} PIPELINE_SLUG=${PIPELINE_SLUG:-default} SUPABASE_CREDENTIALS=${supabase_ok}"
 }
 
 require_supabase_credentials() {
@@ -45,4 +45,15 @@ require_supabase_credentials() {
     fi
     echo "Error: Supabase credentials missing. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in agents/scripts/.env.supabase" >&2
     exit 1
+}
+
+codebook_review_uses_supabase() {
+    case "${GT_CODEBOOK_REVIEW_BACKEND:-}" in
+        supabase) return 0 ;;
+        local) return 1 ;;
+    esac
+    if [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
+        return 0
+    fi
+    return 1
 }

@@ -203,17 +203,29 @@ Under **`agents/outputs/`** (gitignored), especially **`agents/outputs/data/`**:
 
 Optional upload reads those paths via **`agents/scripts/upload_pipeline_to_supabase.py`**.
 
+Local viewer export (no database) writes the same artifacts into **`viewer-data/`** via
+**`agents/scripts/export_viewer_data.py`** (enabled by default: `GT_VIEWER_EXPORT=1`). Researchers open
+the UI with **`python tools/viewer_launcher.py --data-dir ./viewer-data`**. See **`tools/howToRun.md`**.
+
 ### Codebook human review gate (optional)
 
-Set in **`agents/scripts/.env.supabase`** or the launcher environment:
+Set in **`agents/scripts/pipeline_config.env`** (or override in **`.env.supabase`**):
 
 ```bash
 GT_CODEBOOK_REVIEW=1
 GT_CODEBOOK_REVIEW_MODE=manual   # or interrupt for LangGraph checkpoint resume
+GT_CODEBOOK_REVIEW_BACKEND=local   # default; use supabase when shared DB is configured
 PIPELINE_SLUG=my-study-slug
 ```
 
-When enabled, the pipeline **stops the LLM server after high-level code generation**, uploads `codebook_v1` to Supabase table **`codebook_reviews`**, polls until a researcher approves via the frontend, materializes the edited codebook locally, then restarts the LLM for refine. See **`agents/docs/SUPABASE_CODEBOOK_REVIEWS.md`** and **`agents/docs/CODEBOOK_REVIEW_FRONTEND.md`**.
+When enabled, the pipeline **stops the LLM server after high-level code generation**, stages the v1
+codebook for human review, polls until approval, materializes the edited codebook locally, then
+restarts the LLM for refine.
+
+- **`GT_CODEBOOK_REVIEW_BACKEND=local`**: exports to **`viewer-data/codebook-reviews/<slug>/`**;
+  researcher approves in the local viewer and saves **`codebook_v2.json`** into that folder.
+- **`GT_CODEBOOK_REVIEW_BACKEND=supabase`** (auto when Supabase credentials are set): uploads to
+  table **`codebook_reviews`** and polls Supabase instead.
 
 ### Qualitative enrichment (optional, default ON)
 

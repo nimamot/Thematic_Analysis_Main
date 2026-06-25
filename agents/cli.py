@@ -16,7 +16,7 @@ from agents.core.codebook_review import (
     human_review_enabled,
     review_meta_from_env,
     review_mode,
-    upload_v1_for_review,
+    stage_v1_for_review,
     wait_for_approval,
     fetch_and_materialize_approved,
 )
@@ -268,7 +268,7 @@ def main() -> None:
     if args.upload_codebook_review:
         slug = os.environ.get("PIPELINE_SLUG", "default").strip() or "default"
         try:
-            review_id = upload_v1_for_review(slug, rq, meta=review_meta_from_env())
+            review_id = stage_v1_for_review(slug, rq, meta=review_meta_from_env())
         except RuntimeError as e:
             print(f"Error: {e}", file=sys.stderr)
             raise SystemExit(1)
@@ -337,7 +337,7 @@ def main() -> None:
         if human_review_enabled() and not use_interrupt:
             slug = os.environ.get("PIPELINE_SLUG", "default").strip() or "default"
             try:
-                review_id = upload_v1_for_review(slug, rq, meta=review_meta_from_env())
+                review_id = stage_v1_for_review(slug, rq, meta=review_meta_from_env())
                 log_step("CODEBOOK_REVIEW_UPLOADED", f"review_id={review_id}")
             except RuntimeError as e:
                 print(f"Warning: codebook review upload failed: {e}", file=sys.stderr)
