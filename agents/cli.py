@@ -248,6 +248,9 @@ def main() -> None:
         raise SystemExit(2)
 
     ensure_output_dirs()
+    from agents.core.pipeline_config import log_effective_config_once
+
+    log_effective_config_once(where="cli")
     rq = args.research_question
     log_step("RESEARCH_QUESTION", rq)
     log_step(

@@ -15,13 +15,13 @@ export PYTHONUNBUFFERED=1
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/load_pipeline_env.sh"
 load_pipeline_env "$SCRIPT_DIR"
-print_pipeline_env_flags "Container"
+print_pipeline_config "Container"
 
-GT_DATA_CSV="${GT_DATA_CSV:-$REPO_ROOT/data/train.csv}"
+export RESEARCH_QUESTION
+export GT_DATA_CSV
+
 SERVER_LOG="${LM_SERVER_LOG:-$AGENTS_ROOT/lm_server.log}"
 PORT="${LM_PORT:-1234}"
-RESEARCH_QUESTION="${RESEARCH_QUESTION:-What thematic patterns emerge across these reviews?}"
-export RESEARCH_QUESTION
 
 LM_SIF="${LM_SIF_PATH:-$AGENTS_ROOT/lmstudio-llmster-preview.sif}"
 PYTORCH_SIF="${PYTORCH_SIF_PATH:-${SIF_PATH:-$AGENTS_ROOT/pytorch-langgraph-sgl.sif}}"
@@ -274,8 +274,8 @@ run_stage "Axial coding" \
 run_stage "High-level code generation" \
     python -m agents.cli --high-level-only --research-question "$RESEARCH_QUESTION"
 
-if [ "${GT_CODEBOOK_REVIEW:-0}" = "1" ]; then
-    echo "Codebook review gate enabled (GT_CODEBOOK_REVIEW=1)..."
+if codebook_review_enabled; then
+    echo "Codebook review gate enabled (GT_CODEBOOK_REVIEW=${GT_CODEBOOK_REVIEW})..."
     export PIPELINE_SLUG="${PIPELINE_SLUG:-default}"
     export RESEARCH_QUESTION
     if codebook_review_uses_supabase; then
@@ -288,10 +288,10 @@ if [ "${GT_CODEBOOK_REVIEW:-0}" = "1" ]; then
     fi
     pipeline_exec python -m agents.cli --wait-codebook-review --research-question "$RESEARCH_QUESTION" || exit 1
 else
-    echo "Codebook review gate skipped (GT_CODEBOOK_REVIEW=${GT_CODEBOOK_REVIEW:-0}). Set GT_CODEBOOK_REVIEW=1 for human review."
+    echo "Codebook review gate skipped (GT_CODEBOOK_REVIEW=${GT_CODEBOOK_REVIEW:-0}). Set GT_CODEBOOK_REVIEW=1 in agents/scripts/pipeline_config.env."
 fi
 
-if [ "${GT_CODEBOOK_REVIEW:-0}" = "1" ] && [ "${GT_CODEBOOK_REVIEW_MODE:-manual}" = "interrupt" ]; then
+if codebook_review_enabled && [ "${GT_CODEBOOK_REVIEW_MODE:-manual}" = "interrupt" ]; then
     run_stage "Refine cluster assignments (resume)" \
         python -m agents.cli --resume-codebook-review --research-question "$RESEARCH_QUESTION"
 else
@@ -299,7 +299,7 @@ else
         python -m agents.cli --refine-only --research-question "$RESEARCH_QUESTION"
 fi
 
-if [ "${GT_QUALITATIVE_ENRICHMENT:-1}" = "1" ]; then
+if qualitative_enrichment_enabled; then
     run_stage "Cluster qualitative enrichment" \
         python -m agents.cli --enrich-codebook-only --research-question "$RESEARCH_QUESTION"
 else
@@ -312,7 +312,7 @@ run_stage "Hierarchy construction" \
 run_stage "Meta-theme grouping" \
     python -m agents.cli --meta-themes-only --research-question "$RESEARCH_QUESTION"
 
-if [ "${GT_QUALITATIVE_ENRICHMENT:-1}" = "1" ]; then
+if qualitative_enrichment_enabled; then
     run_stage "Dimension qualitative enrichment" \
         python -m agents.cli --enrich-dimensions-only --research-question "$RESEARCH_QUESTION"
 fi
@@ -326,7 +326,7 @@ run_stage "Research report" \
 run_stage "Co-occurrence network" \
     python -m agents.cli --cooccurrence-only --research-question "$RESEARCH_QUESTION"
 
-if [ "${UPLOAD_TO_SUPABASE:-0}" = "1" ]; then
+if upload_to_supabase_enabled; then
     echo "Uploading pipeline artifacts to Supabase (UPLOAD_TO_SUPABASE=1)..."
     export PIPELINE_SLUG="${PIPELINE_SLUG:-default}"
     if ! pipeline_exec python "$AGENTS_ROOT/scripts/upload_pipeline_to_supabase.py"; then
@@ -334,10 +334,10 @@ if [ "${UPLOAD_TO_SUPABASE:-0}" = "1" ]; then
         exit 1
     fi
 else
-    echo "Supabase upload skipped (UPLOAD_TO_SUPABASE is not 1)."
+    echo "Supabase upload skipped (UPLOAD_TO_SUPABASE=${UPLOAD_TO_SUPABASE:-0}). Set UPLOAD_TO_SUPABASE=1 in agents/scripts/pipeline_config.env to enable."
 fi
 
-if [ "${GT_VIEWER_EXPORT:-1}" = "1" ]; then
+if viewer_export_enabled; then
     echo "Exporting pipeline artifacts to viewer-data/ (GT_VIEWER_EXPORT=1)..."
     export PIPELINE_SLUG="${PIPELINE_SLUG:-default}"
     if ! pipeline_exec python "$AGENTS_ROOT/scripts/export_viewer_data.py" --mode project; then

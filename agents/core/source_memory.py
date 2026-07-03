@@ -16,7 +16,9 @@ MEMORY_VERSION = 1
 ENRICHED_SCHEMA_VERSION = 1
 
 _CODE_EVIDENCE_RE = re.compile(
-    r"-\s*Code:\s*(.+?)\n\s+Evidence:\s*\"(.+?)\"(?:\n\s+Note:\s*(.+?))?(?=\n-|\n*$)",
+    r"-\s*Code:\s*(.+?)\s*\n\s+Evidence:\s*\"(.+?)\"\s*"
+    r"(?:\n\s+Note:\s*(.+?)\s*)?"
+    r"(?=\n\s*-\s*(?:Code:|Applicability:)|\n##|\Z)",
     re.DOTALL | re.IGNORECASE,
 )
 
@@ -87,24 +89,41 @@ def load_review_source_ids(csv_path: Path) -> Dict[int, str | None]:
     if not csv_path.is_file():
         return {}
 
-    import pandas as pd
+    try:
+        import pandas as pd
 
-    df = pd.read_csv(csv_path)
-    id_col = None
-    for candidate in ("id", "csv_id", "review_id"):
-        if candidate in df.columns:
-            id_col = candidate
-            break
+        df = pd.read_csv(csv_path)
+        id_col = None
+        for candidate in ("id", "csv_id", "review_id"):
+            if candidate in df.columns:
+                id_col = candidate
+                break
 
-    out: Dict[int, str | None] = {}
-    for idx in range(len(df)):
-        review_id = idx + 1
-        if id_col is not None:
-            val = df.iloc[idx][id_col]
-            out[review_id] = None if pd.isna(val) else str(val)
-        else:
-            out[review_id] = None
-    return out
+        out: Dict[int, str | None] = {}
+        for idx in range(len(df)):
+            review_id = idx + 1
+            if id_col is not None:
+                val = df.iloc[idx][id_col]
+                out[review_id] = None if pd.isna(val) else str(val)
+            else:
+                out[review_id] = None
+        return out
+    except ImportError:
+        import csv
+
+        out: Dict[int, str | None] = {}
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames or []
+            id_col = next((c for c in ("id", "csv_id", "review_id") if c in fieldnames), None)
+            for idx, row in enumerate(reader):
+                review_id = idx + 1
+                if id_col is not None:
+                    val = (row.get(id_col) or "").strip()
+                    out[review_id] = val or None
+                else:
+                    out[review_id] = None
+        return out
 
 
 def _load_code_id_map(path: Path = CODE_ID_MAP_PATH) -> Dict[str, str]:

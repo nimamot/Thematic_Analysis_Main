@@ -4,7 +4,7 @@
 #SBATCH --mem=60G
 #SBATCH --time=0-12:00:00
 #SBATCH --gpus=h100:1
-#SBATCH --account=def-lingjzhu
+#SBATCH --account=rrg-lingjzhu
 
 #
 # Fir (Alliance): full H100 via --gpus=h100:1; GPU RAC is rrg-lingjzhu.
@@ -46,7 +46,7 @@ export HF_HOME="$HF_CACHE"
 # shellcheck disable=SC1091
 source "$AGENTS_SCRIPTS/load_pipeline_env.sh"
 load_pipeline_env "$AGENTS_SCRIPTS"
-print_pipeline_env_flags "Host"
+print_pipeline_config "Host"
 
 # Default CSV is train.csv (set in launch_sgl.sh). Override example:
 # export GT_DATA_CSV="$REPO_ROOT/data/reddit_comment_text_1000.csv"
@@ -79,6 +79,8 @@ case "$GT_LAUNCHER" in
     echo "GT_LAUNCHER=$GT_LAUNCHER -> launch_sgl.sh (inside $SIF_PATH)"
     apptainer exec -C --nv --home "$APPTAINER_HOME" -W "$APPTAINER_HOME" \
       -B /project -B /scratch -B "$REPO_ROOT:$REPO_ROOT" \
+      --env "SLURM_JOB_ID=${SLURM_JOB_ID:-}" \
+      --env "SLURM_SUBMIT_DIR=${SLURM_SUBMIT_DIR:-}" \
       "$SIF_PATH" bash "$AGENTS_SCRIPTS/launch_sgl.sh"
     ;;
 esac

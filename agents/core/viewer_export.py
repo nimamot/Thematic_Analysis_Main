@@ -5,11 +5,20 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import paths
+from .code_evidence import (
+    build_code_evidence,
+    dedup_map_from_clustered,
+    load_source_memory_for_export,
+    open_codes_from_codebook,
+)
 from .codebook_edits import apply_codebook_review
 from .paths import (
     CLUSTERED_CODES_PATH,
@@ -188,6 +197,27 @@ def export_codebook_review(
         raise RuntimeError(f"viewer export missing required artifacts: {', '.join(missing)}")
 
     rq = resolve_research_question(research_question)
+    memory = load_source_memory_for_export()
+    if memory is not None:
+        evidence = build_code_evidence(
+            memory,
+            slug=slug,
+            research_question=rq,
+            open_codes=open_codes_from_codebook(review_dir / "codebook.json"),
+            dedup_map=dedup_map_from_clustered(review_dir / "gt_clustered_codes.json"),
+        )
+        _write_json(review_dir / "code_evidence.json", evidence)
+        memory.save(paths.SOURCE_MEMORY_PATH)
+        log_step(
+            "VIEWER_CODE_EVIDENCE_EXPORTED",
+            f"slug={slug!r} codes={len(evidence.get('by_open_code', {}))}",
+        )
+    else:
+        log_step(
+            "VIEWER_CODE_EVIDENCE_SKIPPED",
+            "no gt_source_memory.json or gt_open_codes_all_reviews.md",
+        )
+
     _write_json(review_dir / "meta.json", _review_meta(slug, rq))
 
     manifest = _read_manifest(root)
@@ -255,7 +285,9 @@ def materialize_local_codebook_v2(v2_path: Path, *, review_id: str | None = None
 
     clustered_out = materialize_clustered_output(result, clustered)
     ensure_output_dirs()
-    _write_json(CODEBOOK_PATH, {"codebook": result.codebook, "cluster_to_codes": result.cluster_to_codes})
+    _write_json(
+        CODEBOOK_PATH, {"codebook": result.codebook, "cluster_to_codes": result.cluster_to_codes}
+    )
     _write_json(CODEBOOK_CONFIDENCE_PATH, result.codebook_confidence)
     _write_json(CLUSTERED_CODES_PATH, clustered_out)
     from .paths import CODEBOOK_PROVENANCE_PATH
@@ -263,6 +295,58 @@ def materialize_local_codebook_v2(v2_path: Path, *, review_id: str | None = None
     _write_json(CODEBOOK_PROVENANCE_PATH, result.provenance)
     log_step("CODEBOOK_REVIEW_MATERIALIZED", f"from={v2_path} clusters={len(result.codebook)}")
     return CODEBOOK_PATH
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _viewer_auto_launch_enabled() -> bool:
+    return os.environ.get("GT_VIEWER_AUTO_LAUNCH", "1").strip().lower() not in ("0", "false", "no")
+
+
+def _viewer_port() -> int:
+    try:
+        return int(os.environ.get("VIEWER_PORT", "8765"))
+    except ValueError:
+        return 8765
+
+
+def _viewer_url() -> str:
+    return f"http://127.0.0.1:{_viewer_port()}/"
+
+
+def maybe_launch_viewer(root: Path) -> None:
+    """Start viewer_launcher in the background (local runs only)."""
+    if not _viewer_auto_launch_enabled():
+        return
+    if os.environ.get("SLURM_JOB_ID"):
+        return
+
+    launcher = _repo_root() / "tools" / "viewer_launcher.py"
+    if not launcher.is_file():
+        log_step("CODEBOOK_REVIEW_VIEWER", f"launcher missing: {launcher}")
+        return
+
+    try:
+        subprocess.Popen(
+            [
+                sys.executable,
+                str(launcher),
+                "--data-dir",
+                str(root),
+                "--pipeline-root",
+                str(_repo_root()),
+            ],
+            cwd=str(_repo_root()),
+            start_new_session=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        log_step("CODEBOOK_REVIEW_VIEWER", f"launched {launcher.name} data-dir={root}")
+    except OSError as exc:
+        log_step("CODEBOOK_REVIEW_VIEWER", f"launch failed: {exc}")
 
 
 def wait_for_local_approval(
@@ -279,20 +363,31 @@ def wait_for_local_approval(
     if interval_sec is None:
         interval_sec = int(os.environ.get("GT_CODEBOOK_REVIEW_POLL_INTERVAL_SEC", "30"))
 
-    review_dir = codebook_review_dir(root, slug)
     drop_path = local_codebook_v2_path(slug, root=root)
     log_step(
         "CODEBOOK_REVIEW_WAIT_LOCAL",
         f"slug={slug!r} drop={drop_path}",
     )
-    print(
-        f"\nLocal codebook review: open the viewer and approve the review for {slug!r}.\n"
-        f"  python tools/viewer_launcher.py --data-dir {root}\n"
-        f"Then save the downloaded export as:\n"
-        f"  {drop_path}\n"
-        f"(or any *-codebook_v2.json in {review_dir})\n",
-        flush=True,
-    )
+    viewer_cmd = f"python tools/viewer_launcher.py --data-dir {root}"
+    viewer_url = _viewer_url()
+    if os.environ.get("SLURM_JOB_ID"):
+        print(
+            f"\nLocal codebook review: Slurm job is waiting for approval (slug={slug!r}).\n"
+            f"Auto-launch is disabled on HPC — run this on your login node in a second terminal:\n"
+            f"  cd {_repo_root()}\n"
+            f"  {viewer_cmd}\n"
+            f"Then open: {viewer_url}\n"
+            f"Go to the **Codebook review** tab, approve (auto-saves to {drop_path} when using viewer_launcher.py).\n",
+            flush=True,
+        )
+    else:
+        print(
+            f"\nLocal codebook review: opening the viewer for {slug!r}.\n"
+            f"URL: {viewer_url}\n"
+            f"Approve in the Codebook review tab (auto-saves to {drop_path} via viewer_launcher.py).\n",
+            flush=True,
+        )
+        maybe_launch_viewer(root)
 
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:

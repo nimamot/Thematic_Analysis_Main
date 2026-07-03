@@ -3,19 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
-
+from agents.core import paths
 from agents.core import viewer_export as ve
-from agents.core.paths import (
-    CLUSTERED_CODES_PATH,
-    CODEBOOK_CONFIDENCE_PATH,
-    CODEBOOK_PATH,
-    GLOBAL_GRAPH_PATH,
-    RESEARCH_REPORT_PATH,
-)
 
 
 @pytest.fixture
@@ -35,6 +27,10 @@ def pipeline_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(ve, "RESEARCH_REPORT_PATH", data_dir / "research_report.md")
     monkeypatch.setattr(ve, "OPEN_CODES_MARKDOWN_PATH", data_dir / "gt_open_codes_all_reviews.md")
     monkeypatch.setattr(ve, "COOCCURRENCE_PATH", data_dir / "gt_cooccurrence.json")
+    monkeypatch.setattr(paths, "SOURCE_MEMORY_PATH", data_dir / "gt_source_memory.json")
+    monkeypatch.setattr(
+        paths, "OPEN_CODES_MARKDOWN_PATH", data_dir / "gt_open_codes_all_reviews.md"
+    )
 
     (data_dir / "codebook.json").write_text(
         json.dumps({"codebook": {"1": "Theme A"}, "cluster_to_codes": {"1": ["c1"]}}),
@@ -53,6 +49,10 @@ def pipeline_outputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "## Research question\n\nWhat themes emerge?\n",
         encoding="utf-8",
     )
+    (data_dir / "gt_open_codes_all_reviews.md").write_text(
+        '## Review 1\n\n- Code: c1\n  Evidence: "example quote one"\n  Note: first note\n',
+        encoding="utf-8",
+    )
     return data_dir
 
 
@@ -61,13 +61,14 @@ def test_ensure_viewer_scaffold_creates_empty_manifest(viewer_root: Path) -> Non
     assert manifest == {"projects": [], "codebook_reviews": []}
 
 
-def test_export_codebook_review_updates_manifest(
-    viewer_root: Path, pipeline_outputs: Path
-) -> None:
+def test_export_codebook_review_updates_manifest(viewer_root: Path, pipeline_outputs: Path) -> None:
     review_dir = ve.export_codebook_review("my-study", "RQ?", root=viewer_root)
     assert review_dir.is_dir()
     assert (review_dir / "codebook.json").is_file()
     assert (review_dir / "gt_clustered_codes.json").is_file()
+    assert (review_dir / "code_evidence.json").is_file()
+    evidence = json.loads((review_dir / "code_evidence.json").read_text(encoding="utf-8"))
+    assert evidence["by_open_code"]["c1"]["primary"]["quote"] == "example quote one"
     manifest = json.loads((viewer_root / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["codebook_reviews"] == ["my-study"]
 

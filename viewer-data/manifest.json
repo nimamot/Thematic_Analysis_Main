@@ -1,4 +1,8 @@
 {
-  "projects": [],
-  "codebook_reviews": []
+  "projects": [
+    "default"
+  ],
+  "codebook_reviews": [
+    "default"
+  ]
 }

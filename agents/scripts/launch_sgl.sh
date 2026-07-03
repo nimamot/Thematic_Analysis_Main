@@ -12,7 +12,7 @@ export PYTHONUNBUFFERED=1
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/load_pipeline_env.sh"
 load_pipeline_env "$SCRIPT_DIR"
-print_pipeline_env_flags "Container"
+print_pipeline_config "Container"
 
 # LangChain stack: bake into the .sif when you rebuild the image, or install once into the Apptainer
 ensure_pipeline_python_deps() {
@@ -27,24 +27,13 @@ ensure_pipeline_python_deps() {
 }
 ensure_pipeline_python_deps
 
-
-# Override examples:
-#   export GT_DATA_CSV="$REPO_ROOT/data/reddit_comment_text_1000.csv"
-# GT_DATA_CSV="${GT_DATA_CSV:-$REPO_ROOT/data/school_burnout_text_review.csv}"
-# GT_DATA_CSV="$REPO_ROOT/data/gameplayreview_text_english_3k.csv"
-GT_DATA_CSV="$REPO_ROOT/data/train.csv"
-# GT_DATA_CSV="$REPO_ROOT/data/school_burnout_text_review.csv"
-
+# Study inputs: agents/scripts/pipeline_config.env (override: VAR=... sbatch run.sh)
+export RESEARCH_QUESTION
+export GT_DATA_CSV
 
 MODEL_PATH="$AGENTS_ROOT/weights/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit"
 SERVER_LOG="$AGENTS_ROOT/server.log"
 PORT=8000
-# Research question — keep it broad so open coding stays inductive (avoid naming expected themes).
-# Override: RESEARCH_QUESTION="..." sbatch run.sh
-RESEARCH_QUESTION="What thematic patterns emerge across these reviews?"
-# RESEARCH_QUESTION="What do players dislike about games and software in these reviews?"
-
-export RESEARCH_QUESTION
 
 # LLM axial clustering: read USE_LLM_CLUSTERING from agents/core/llm_clustering.py.
 USE_LLM_CLUSTERING="$(python -c "from agents.core.llm_clustering import USE_LLM_CLUSTERING; print(1 if USE_LLM_CLUSTERING else 0)")"
@@ -285,8 +274,8 @@ fi
 stop_sglang_server "$SERVER_PID"
 SERVER_PID=""
 
-if [ "${GT_CODEBOOK_REVIEW:-0}" = "1" ]; then
-    echo "Codebook review gate enabled (GT_CODEBOOK_REVIEW=1)..."
+if codebook_review_enabled; then
+    echo "Codebook review gate enabled (GT_CODEBOOK_REVIEW=${GT_CODEBOOK_REVIEW})..."
     export PIPELINE_SLUG="${PIPELINE_SLUG:-default}"
     export RESEARCH_QUESTION
     if codebook_review_uses_supabase; then
@@ -299,7 +288,7 @@ if [ "${GT_CODEBOOK_REVIEW:-0}" = "1" ]; then
     fi
     PYTHONPATH="$REPO_ROOT" python -m agents.cli --wait-codebook-review --research-question "$RESEARCH_QUESTION" || exit 1
 else
-    echo "Codebook review gate skipped (GT_CODEBOOK_REVIEW=${GT_CODEBOOK_REVIEW:-0}). Set GT_CODEBOOK_REVIEW=1 for human review."
+    echo "Codebook review gate skipped (GT_CODEBOOK_REVIEW=${GT_CODEBOOK_REVIEW:-0}). Set GT_CODEBOOK_REVIEW=1 in agents/scripts/pipeline_config.env."
 fi
 
 # --- 9. Refine cluster assignments (restart SGLang) ---
@@ -318,7 +307,7 @@ if ! wait_for_openai_ready "$PORT" "$SERVER_LOG" "$SERVER_PID" "SGLang (Qwen, re
     exit 1
 fi
 
-if [ "${GT_CODEBOOK_REVIEW:-0}" = "1" ] && [ "${GT_CODEBOOK_REVIEW_MODE:-manual}" = "interrupt" ]; then
+if codebook_review_enabled && [ "${GT_CODEBOOK_REVIEW_MODE:-manual}" = "interrupt" ]; then
     echo "Starting refine via LangGraph resume (GT_CODEBOOK_REVIEW_MODE=interrupt)..."
     python -m agents.cli --resume-codebook-review --research-question "$RESEARCH_QUESTION"
 else
@@ -333,7 +322,7 @@ if [ $REFINE_EXIT -ne 0 ]; then
 fi
 
 # --- 9b. Cluster qualitative enrichment (optional) ---
-if [ "${GT_QUALITATIVE_ENRICHMENT:-1}" = "1" ]; then
+if qualitative_enrichment_enabled; then
     echo "Starting cluster qualitative enrichment (agents.cli --enrich-codebook-only)..."
     python -m agents.cli --enrich-codebook-only --research-question "$RESEARCH_QUESTION"
     ENRICH_CB_EXIT=$?
@@ -367,7 +356,7 @@ if [ $META_EXIT -ne 0 ]; then
 fi
 
 # --- 11b. Meta-theme qualitative enrichment (optional) ---
-if [ "${GT_QUALITATIVE_ENRICHMENT:-1}" = "1" ]; then
+if qualitative_enrichment_enabled; then
     echo "Starting dimension qualitative enrichment (agents.cli --enrich-dimensions-only)..."
     python -m agents.cli --enrich-dimensions-only --research-question "$RESEARCH_QUESTION"
     ENRICH_DIM_EXIT=$?
@@ -435,7 +424,7 @@ if [ "$COOCCURRENCE_EXIT" -ne 0 ]; then
     exit "$COOCCURRENCE_EXIT"
 fi
 
-if [ "${UPLOAD_TO_SUPABASE:-0}" = "1" ]; then
+if upload_to_supabase_enabled; then
     require_supabase_credentials
     echo "Uploading pipeline artifacts to Supabase (UPLOAD_TO_SUPABASE=1)..."
     export PIPELINE_SLUG="${PIPELINE_SLUG:-default}"
@@ -444,10 +433,10 @@ if [ "${UPLOAD_TO_SUPABASE:-0}" = "1" ]; then
         exit 1
     fi
 else
-    echo "Supabase upload skipped (UPLOAD_TO_SUPABASE is not 1). With sbatch run.sh, export UPLOAD_TO_SUPABASE=1 in .env.supabase or rely on run.sh defaulting it to 1 when SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set."
+    echo "Supabase upload skipped (UPLOAD_TO_SUPABASE=${UPLOAD_TO_SUPABASE:-0}). Set UPLOAD_TO_SUPABASE=1 in agents/scripts/pipeline_config.env to enable."
 fi
 
-if [ "${GT_VIEWER_EXPORT:-1}" = "1" ]; then
+if viewer_export_enabled; then
     echo "Exporting pipeline artifacts to viewer-data/ (GT_VIEWER_EXPORT=1)..."
     export PIPELINE_SLUG="${PIPELINE_SLUG:-default}"
     if ! PYTHONPATH="$REPO_ROOT" python "$AGENTS_ROOT/scripts/export_viewer_data.py" --mode project; then
