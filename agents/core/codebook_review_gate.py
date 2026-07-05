@@ -11,8 +11,9 @@ from .codebook_review import (
     fetch_and_materialize_approved,
     human_review_enabled,
     materialize_approved_row,
+    review_backend,
     review_meta_from_env,
-    upload_v1_for_review,
+    stage_v1_for_review,
 )
 from .state import GTState
 from .utils import log_step
@@ -31,14 +32,20 @@ def codebook_review_gate(state: GTState) -> Dict[str, Any]:
     review_id = state.get("codebook_review_id")
 
     if not review_id:
-        review_id = upload_v1_for_review(slug, rq, meta=review_meta_from_env())
+        review_id = stage_v1_for_review(slug, rq, meta=review_meta_from_env())
 
+    backend = review_backend()
+    wait_hint = (
+        "Waiting for human codebook approval via local viewer-data/"
+        if backend == "local"
+        else "Waiting for human codebook approval in Supabase"
+    )
     resume_payload = interrupt(
         {
             "kind": "codebook_review",
             "review_id": review_id,
             "slug": slug,
-            "message": "Waiting for human codebook approval in Supabase",
+            "message": wait_hint,
         }
     )
 

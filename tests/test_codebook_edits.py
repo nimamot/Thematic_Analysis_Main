@@ -127,6 +127,34 @@ def test_needs_more_evidence_sets_skip_refine():
     assert "0" in result.skip_refine_cluster_ids
 
 
+def test_split_skipped_when_cluster_to_codes_already_reflects_viewer_export():
+    """Viewer v2 exports final membership plus an operations log — do not replay splits."""
+    v2 = {
+        "version": 1,
+        "clusters": {
+            "2a": {"label": "Part A", "source": "human", "status": "keep"},
+            "2b": {"label": "Part B", "source": "human", "status": "keep"},
+            "1": {"label": "Other", "source": "llm", "status": "keep"},
+        },
+        "operations": [
+            {
+                "type": "split",
+                "from_cluster_id": "0",
+                "splits": [
+                    {"new_cluster_id": "2a", "label": "Part A", "code_ids": ["a"]},
+                    {"new_cluster_id": "2b", "label": "Part B", "code_ids": ["b"]},
+                ],
+            }
+        ],
+        "cluster_to_codes": {"2a": ["a"], "2b": ["b"], "1": ["c", "d"]},
+    }
+    result = apply_codebook_review(v2, _base_clustered())
+    values = [set(v) for v in result.cluster_to_codes.values()]
+    assert {"a"} in values
+    assert {"b"} in values
+    assert {"c", "d"} in values
+
+
 def test_invalid_split_raises():
     v2 = {
         "version": 1,

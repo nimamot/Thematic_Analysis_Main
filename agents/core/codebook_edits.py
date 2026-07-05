@@ -74,6 +74,29 @@ def _apply_split(cluster_to_codes: Dict[str, List[str]], op: Dict[str, Any]) -> 
         )
 
 
+def _operation_already_applied(cluster_to_codes: Dict[str, List[str]], op: Dict[str, Any]) -> bool:
+    """True when v2.cluster_to_codes already reflects this operation (viewer export)."""
+    op_type = op.get("type")
+    if op_type == "split":
+        from_cid = str(op.get("from_cluster_id") or "")
+        if from_cid in cluster_to_codes:
+            return False
+        new_ids = [str(p.get("new_cluster_id") or "") for p in op.get("splits") or []]
+        new_ids = [nid for nid in new_ids if nid]
+        return bool(new_ids) and all(nid in cluster_to_codes for nid in new_ids)
+    if op_type == "merge":
+        from_ids = [str(x) for x in op.get("from_cluster_ids") or []]
+        target = str(op.get("target_cluster_id") or "")
+        if not target or target not in cluster_to_codes:
+            return False
+        others = [fid for fid in from_ids if fid and fid != target]
+        return not any(fid in cluster_to_codes for fid in others)
+    if op_type == "drop":
+        cid = str(op.get("cluster_id") or "")
+        return bool(cid) and cid not in cluster_to_codes
+    return False
+
+
 def _apply_drop(
     cluster_to_codes: Dict[str, List[str]], op: Dict[str, Any], orphaned: List[str]
 ) -> None:
@@ -111,6 +134,8 @@ def apply_codebook_review(
 
     orphaned: List[str] = []
     for op in v2.get("operations") or []:
+        if _operation_already_applied(cluster_to_codes, op):
+            continue
         op_type = op.get("type")
         if op_type == "merge":
             _apply_merge(cluster_to_codes, op)

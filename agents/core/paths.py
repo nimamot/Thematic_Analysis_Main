@@ -3,6 +3,8 @@
 from pathlib import Path
 
 AGENTS_DIR = Path(__file__).resolve().parent.parent
+REPO_ROOT = AGENTS_DIR.parent
+VIEWER_DATA_DIR = REPO_ROOT / "viewer-data"
 OUTPUTS_DIR = AGENTS_DIR / "outputs"
 DATA_DIR = OUTPUTS_DIR / "data"
 LOGS_DIR = OUTPUTS_DIR / "logs"

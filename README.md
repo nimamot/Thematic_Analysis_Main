@@ -67,6 +67,20 @@ flowchart TD
     report --> upload[SupabaseUpload]
 ```
 
+---
+
+## Local human-in-the-loop
+
+With `GT_CODEBOOK_REVIEW=1`, the pipeline pauses after axial clustering and high-level labels. It exports a draft codebook to `viewer-data/`, then waits for a researcher to review it in the **Graph Builder viewer** before continuing to hierarchy and downstream stages.
+
+```bash
+# After a run exports viewer-data/, or on HPC in a second terminal while the job waits:
+python tools/viewer_launcher.py --data-dir ./viewer-data
+```
+
+In the viewer, use **Codebook review** to inspect clusters, edit labels, and **Approve & export**. The launcher auto-saves `codebook_v2.json` back into `viewer-data/`; the pipeline picks it up and resumes. When the run finishes, **Library** shows the theme graph and research report.
+
+No Supabase or npm is required for this flow. See [tools/howToRun.md](tools/howToRun.md) for file layout and troubleshooting.
 
 ---
 
